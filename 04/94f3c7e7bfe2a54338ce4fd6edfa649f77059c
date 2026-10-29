@@ -1,0 +1,22 @@
+bin/glasstty
+  s_d2fb404b8f68b3::t_c0e4b84e4790ba 1-169,171-226
+install.sh
+  s_d2fb404b8f68b3::t_e34a58fc547c64 1-23,27-62
+  s_d2fb404b8f68b3::t_26a60212133d8a 24-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.51-trip",
+  "base_commit_sha": "0494f3c7e7bfe2a54338ce4fd6edfa649f77059c",
+  "prompts": {},
+  "sessions": {
+    "s_d2fb404b8f68b3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e211d12-978e-4305-85dc-0f6881c3dcf8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Yilun Qian <11675769+qianyilun@users.noreply.github.com>"
+    }
+  }
+}
