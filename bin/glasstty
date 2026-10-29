@@ -1,0 +1,226 @@
+#!/bin/sh
+# glasstty: turn the glasstty look on or off in Ghostty, and the glass tab bar in tmux.
+# https://github.com/qianyilun/glasstty
+#
+# enable adds a marked block to your Ghostty config that includes glasstty.ghostty, and with
+# --tmux a block to your tmux config that sources the tab bar. disable removes those blocks.
+# Every change backs the file up first.
+set -eu
+
+VERSION=0.1.0
+# Where glasstty.ghostty and its folders live. Homebrew sets this to the formula's stable
+# share path; otherwise it is found next to this script.
+GLASSTTY_ROOT_DEFAULT=""
+
+BEGIN_MARK="# >>> glasstty >>>"
+END_MARK="# <<< glasstty <<<"
+
+usage() {
+  cat <<'EOF'
+Usage: glasstty <command> [options]
+
+Commands:
+  enable     Add glasstty to your Ghostty config
+  disable    Remove what enable added
+  status     Show where glasstty is installed and whether it is enabled
+  version    Print the version
+
+Options:
+  --tmux           Also enable or disable the glass tab bar in your tmux config
+  --config PATH    Use this Ghostty config file instead of the one Ghostty prefers
+
+After enable or disable, reload Ghostty with Cmd+Shift+, (Reload Configuration).
+EOF
+}
+
+die() {
+  printf 'glasstty: %s\n' "$1" >&2
+  exit 1
+}
+
+glasstty_root() {
+  if [ -n "${GLASSTTY_HOME:-}" ]; then
+    printf '%s\n' "$GLASSTTY_HOME"
+    return
+  fi
+  if [ -n "$GLASSTTY_ROOT_DEFAULT" ]; then
+    printf '%s\n' "$GLASSTTY_ROOT_DEFAULT"
+    return
+  fi
+  # Resolve symlinks to this script, then step out of bin/.
+  self=$0
+  while [ -L "$self" ]; do
+    target=$(readlink "$self")
+    case $target in
+      /*) self=$target ;;
+      *) self=$(dirname "$self")/$target ;;
+    esac
+  done
+  (cd "$(dirname "$self")/.." && pwd)
+}
+
+nonempty() {
+  [ -f "$1" ] && [ -s "$1" ]
+}
+
+# The config file Ghostty 1.3 treats as the user's own, same rule as `ghostty +edit-config`:
+# the first non-empty file of Application Support config.ghostty, config, then XDG
+# config.ghostty, config; if none has content, Application Support config.ghostty.
+ghostty_config() {
+  app_support="$HOME/Library/Application Support/com.mitchellh.ghostty"
+  xdg="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty"
+  for candidate in "$app_support/config.ghostty" "$app_support/config" \
+                   "$xdg/config.ghostty" "$xdg/config"; do
+    if nonempty "$candidate"; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+  printf '%s\n' "$app_support/config.ghostty"
+}
+
+# The config file tmux reads: ~/.tmux.conf, then the XDG locations tmux 3.2+ looks in.
+tmux_config() {
+  for candidate in "$HOME/.tmux.conf" "${XDG_CONFIG_HOME:-$HOME/.config}/tmux/tmux.conf" \
+                   "$HOME/.config/tmux/tmux.conf"; do
+    if [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+  printf '%s\n' "$HOME/.tmux.conf"
+}
+
+has_block() {
+  [ -f "$1" ] && grep -qxF "$BEGIN_MARK" "$1"
+}
+
+block_body() {
+  awk -v b="$BEGIN_MARK" -v e="$END_MARK" '$0 == e { inside = 0 } inside { print } $0 == b { inside = 1 }' "$1"
+}
+
+backup() {
+  if nonempty "$1"; then
+    copy="$1.backup-before-glasstty-$(date +%Y%m%d-%H%M%S)"
+    cp -p "$1" "$copy"
+    printf '  backup: %s\n' "$copy"
+  fi
+}
+
+# Writes through the existing file, so a config that is a symlink into a dotfiles repo stays one.
+remove_block() {
+  tmp=$(mktemp)
+  awk -v b="$BEGIN_MARK" -v e="$END_MARK" '$0 == b { skip = 1; next } $0 == e { skip = 0; next } !skip' "$1" > "$tmp"
+  cat "$tmp" > "$1"
+  rm -f "$tmp"
+}
+
+append_block() {
+  mkdir -p "$(dirname "$1")"
+  if nonempty "$1" && [ -n "$(tail -c 1 "$1")" ]; then
+    printf '\n' >> "$1"
+  fi
+  printf '%s\n%s\n%s\n' "$BEGIN_MARK" "$2" "$END_MARK" >> "$1"
+}
+
+# Puts exactly one block with this body into the file. Prints what happened.
+set_block() {
+  file=$1
+  body=$2
+  if has_block "$file" && [ "$(block_body "$file")" = "$body" ]; then
+    printf 'already enabled in %s\n' "$file"
+    return
+  fi
+  printf 'enabling in %s\n' "$file"
+  backup "$file"
+  if has_block "$file"; then
+    remove_block "$file"
+  fi
+  append_block "$file" "$body"
+}
+
+unset_block() {
+  file=$1
+  if ! has_block "$file"; then
+    printf 'not enabled in %s\n' "$file"
+    return
+  fi
+  printf 'disabling in %s\n' "$file"
+  backup "$file"
+  remove_block "$file"
+}
+
+warn_macos() {
+  major=$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)
+  if [ -n "$major" ] && [ "$major" -lt 26 ]; then
+    printf 'note: macOS %s detected. The glass background needs macOS 26 or later.\n' "$major"
+  fi
+}
+
+cmd_enable() {
+  root=$(glasstty_root)
+  [ -f "$root/glasstty.ghostty" ] || die "glasstty.ghostty not found in $root"
+  cfg=${config_override:-$(ghostty_config)}
+  set_block "$cfg" "config-file = ?$root/glasstty.ghostty"
+  if grep -v -xF "config-file = ?$root/glasstty.ghostty" "$cfg" | grep -q 'glasstty\.ghostty'; then
+    printf 'note: %s also includes glasstty.ghostty outside the glasstty block; you can delete that line.\n' "$cfg"
+  fi
+  if [ "$with_tmux" = 1 ]; then
+    tcfg=$(tmux_config)
+    set_block "$tcfg" "source-file -q \"$root/tmux/glasstty.tmux.conf\""
+  fi
+  warn_macos
+  printf '\nNext: reload Ghostty with Cmd+Shift+, (Reload Configuration).\n'
+  if [ "$with_tmux" = 1 ]; then
+    printf 'Then reload tmux, after Ghostty so the tab colors exist:  tmux source-file %s\n' "$tcfg"
+  fi
+}
+
+cmd_disable() {
+  cfg=${config_override:-$(ghostty_config)}
+  unset_block "$cfg"
+  if [ "$with_tmux" = 1 ]; then
+    unset_block "$(tmux_config)"
+    printf 'A running tmux keeps the glass tab bar until it restarts.\n'
+  fi
+  printf '\nNext: reload Ghostty with Cmd+Shift+, (Reload Configuration).\n'
+}
+
+cmd_status() {
+  root=$(glasstty_root)
+  cfg=${config_override:-$(ghostty_config)}
+  tcfg=$(tmux_config)
+  printf 'glasstty %s\n' "$VERSION"
+  printf 'files:   %s\n' "$root"
+  if has_block "$cfg"; then state=enabled; else state="not enabled"; fi
+  printf 'ghostty: %s (%s)\n' "$state" "$cfg"
+  if has_block "$tcfg"; then state=enabled; else state="not enabled"; fi
+  printf 'tmux:    %s (%s)\n' "$state" "$tcfg"
+}
+
+command=${1:-}
+[ $# -gt 0 ] && shift
+with_tmux=0
+config_override=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --tmux) with_tmux=1 ;;
+    --config)
+      [ $# -ge 2 ] || die "--config needs a path"
+      config_override=$2
+      shift
+      ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "unknown option: $1 (see glasstty --help)" ;;
+  esac
+  shift
+done
+
+case $command in
+  enable) cmd_enable ;;
+  disable) cmd_disable ;;
+  status) cmd_status ;;
+  version|--version|-v) printf 'glasstty %s\n' "$VERSION" ;;
+  ""|help|-h|--help) usage ;;
+  *) die "unknown command: $command (see glasstty --help)" ;;
+esac

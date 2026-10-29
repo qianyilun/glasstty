@@ -26,21 +26,77 @@ The same tab bar over a colorful wallpaper, a white page and a dark wallpaper. U
 
 ## Install
 
-Clone the repo next to your Ghostty config. The paths below assume this location; change them if you clone it somewhere else.
+### One line
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/qianyilun/glasstty/main/install.sh | sh
+```
+
+With the tmux tab bar too:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/qianyilun/glasstty/main/install.sh | sh -s -- --tmux
+```
+
+The script downloads glasstty into `~/.config/ghostty/glasstty` and finds the config file Ghostty actually reads, the same one `ghostty +edit-config` opens. It backs that file up and adds a marked block that includes glasstty. Running it again updates glasstty and leaves your config as it is.
+
+Then reload Ghostty with **Cmd+Shift+,** (Reload Configuration).
+
+### Homebrew
+
+```bash
+brew install qianyilun/tap/glasstty
+glasstty enable            # or: glasstty enable --tmux
+```
+
+`brew upgrade glasstty` updates it. The include points at Homebrew's stable `opt` path, so it keeps working across upgrades.
+
+### Turning it off
+
+```bash
+glasstty disable           # add --tmux to remove the tab bar too
+glasstty status            # shows which files it is enabled in
+```
+
+With the one-line install, the command is `~/.config/ghostty/glasstty/bin/glasstty`. Run `glasstty disable` before `brew uninstall glasstty`. If you forget, nothing breaks: the Ghostty include starts with `?` and the tmux one uses `source-file -q`, so both skip a missing file.
+
+### What enable changes
+
+In your Ghostty config:
+
+```
+# >>> glasstty >>>
+config-file = ?/path/to/glasstty/glasstty.ghostty
+# <<< glasstty <<<
+```
+
+With `--tmux`, in `~/.tmux.conf` (or `~/.config/tmux/tmux.conf` if that is the one you use):
+
+```
+# >>> glasstty >>>
+source-file -q "/path/to/glasstty/tmux/glasstty.tmux.conf"
+# <<< glasstty <<<
+```
+
+Each file is copied to `*.backup-before-glasstty-<time>` before it changes. Ghostty reads included files after the rest of the file that includes them, wherever the line sits, so glasstty's settings win over your own.
+
+### By hand
+
+Clone the repo and add the include yourself. `ghostty +edit-config` opens the right config file.
 
 ```bash
 git clone https://github.com/qianyilun/glasstty.git ~/.config/ghostty/glasstty
 ```
 
-Add one line to your Ghostty config (usually `~/.config/ghostty/config`):
-
 ```
 config-file = ~/.config/ghostty/glasstty/glasstty.ghostty
 ```
 
-Then reload Ghostty with **Cmd+Shift+,** (Reload Configuration). Ghostty reads included files after the rest of the file that includes them, wherever the line sits, so these settings win over your own. Delete the line and reload to go back.
+For tmux, add `source-file ~/.config/ghostty/glasstty/tmux/glasstty.tmux.conf` to your tmux config.
 
-The screenshots also use these optional font settings:
+### Fonts
+
+The screenshots also use these optional settings:
 
 ```
 font-family = SF Mono
@@ -50,12 +106,6 @@ adjust-cell-height = 8%
 ```
 
 ### tmux tab bar
-
-Add this to `~/.tmux.conf`:
-
-```
-source-file ~/.config/ghostty/glasstty/tmux/glasstty.tmux.conf
-```
 
 Reload Ghostty first, then tmux:
 
@@ -73,7 +123,7 @@ To write your own tab formats:
 
 ### Scrim only
 
-For the clear window and reading scrim without the glass tabs and blocks, change the `custom-shader` line in `glasstty.ghostty` to `shaders/glasstty-scrim.glsl`.
+For the clear window and reading scrim without the glass tabs and blocks, copy `glasstty.ghostty`, change its `custom-shader` line to the full path of `shaders/glasstty-scrim.glsl`, and include your copy instead.
 
 ## How it works
 
@@ -105,6 +155,8 @@ The glass lighting draws on open-source Liquid Glass recreations: [kube.io](http
 | File | What it is |
 |---|---|
 | `glasstty.ghostty` | The one file you include from your Ghostty config |
+| `install.sh` | One-line installer |
+| `bin/glasstty` | `enable`, `disable` and `status` |
 | `themes/glasstty-light` | Colors, including the tab markers |
 | `shaders/glasstty.glsl` | Scrim, glass tabs and glass blocks |
 | `shaders/glasstty-scrim.glsl` | Scrim only |
